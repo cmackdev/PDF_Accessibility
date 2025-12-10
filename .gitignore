@@ -22,3 +22,13 @@ lambda/add_title/venv
 # OS generated files
 **/.DS_Store
 **/.DS_Store?
+
+# Java build artifacts
+**/target/
+*.class
+*.jar
+
+# Test frameworks cache
+.hypothesis/
+.jqwik-database
+tests/
