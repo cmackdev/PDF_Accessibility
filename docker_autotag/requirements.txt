@@ -6,3 +6,5 @@ pillow==10.4.0
 PyMuPDF==1.25.1
 pypdf==4.3.1
 pdfservices-sdk==4.1.0
+hypothesis==6.92.0
+pytest==7.4.3

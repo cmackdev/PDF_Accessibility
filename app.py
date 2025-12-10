@@ -212,7 +212,7 @@ class PDFAccessibility(Stack):
                             items_path=sfn.JsonPath.string_at("$.chunks"),
                             result_path="$.MapResults")
 
-        map_state.iterator(ecs_task_1.next(ecs_task_2))
+        map_state.item_processor(ecs_task_1.next(ecs_task_2))
 
         cloudwatch_logs_policy = iam.PolicyStatement(
                     actions=["cloudwatch:PutMetricData"],  # Allow PutMetricData action
@@ -347,7 +347,7 @@ class PDFAccessibility(Stack):
         # State Machine
 
         state_machine = sfn.StateMachine(self, "MyStateMachine",
-                                         definition=parallel_state,
+                                         definition_body=sfn.DefinitionBody.from_chainable(parallel_state),
                                          timeout=Duration.minutes(150),
                                          logs=sfn.LogOptions(
                                              destination=log_group_stepfunctions,

@@ -1,4 +1,4 @@
-# Use an official Python runtime as a parent image
+# Use AWS Public ECR Python runtime to avoid Docker Hub rate limits
 FROM public.ecr.aws/docker/library/python:3.10-slim
 
 # Set the working directory in the container to /app

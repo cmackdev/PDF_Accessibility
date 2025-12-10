@@ -70,6 +70,7 @@ import json
 import re
 import zipfile
 from pypdf import PdfReader, PdfWriter
+from typing import Dict, List, Optional, Any
 
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.exception.exceptions import ServiceApiException, ServiceUsageException, SdkException
@@ -153,6 +154,189 @@ def get_secret(basefilename):
     client_secret = secret_dict['client_credentials']['PDF_SERVICES_CLIENT_SECRET']
     
     return client_id, client_secret
+
+def extract_form_tags(pdf_path: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Extract form field accessibility properties from a PDF.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        
+    Returns:
+        Dictionary mapping field names to their accessibility properties
+    """
+    form_tags = {}
+    
+    try:
+        reader = PdfReader(pdf_path)
+        
+        # Check if the PDF has a form (AcroForm)
+        if "/AcroForm" not in reader.trailer["/Root"]:
+            logging.info(f'Filename: {pdf_path} | No form fields found in PDF')
+            return form_tags
+        
+        acro_form = reader.trailer["/Root"]["/AcroForm"]
+        
+        # Check if there are any fields
+        if "/Fields" not in acro_form:
+            logging.info(f'Filename: {pdf_path} | No form fields found in AcroForm')
+            return form_tags
+        
+        fields = acro_form["/Fields"]
+        
+        # Extract properties from each field
+        for field_ref in fields:
+            field = field_ref.get_object()
+            
+            # Get field name (required)
+            field_name = field.get("/T")
+            if not field_name:
+                continue
+            
+            # Extract accessibility properties
+            field_data = {
+                "field_name": str(field_name),
+                "tooltip": str(field.get("/TU", "")),
+                "mapping_name": str(field.get("/TM", "")),
+                "alt_text": str(field.get("/Alt", "")),
+                "field_type": str(field.get("/FT", "")),
+                "field_flags": field.get("/Ff", 0),
+                "default_value": str(field.get("/DV", "")),
+                "value": str(field.get("/V", ""))
+            }
+            
+            # Store widget annotation properties if present
+            if "/Kids" in field:
+                widgets = []
+                for widget_ref in field["/Kids"]:
+                    widget = widget_ref.get_object()
+                    widget_data = {
+                        "rect": widget.get("/Rect"),
+                        "appearance": widget.get("/AP"),
+                        "border": widget.get("/Border"),
+                        "background_color": widget.get("/BG"),
+                        "border_color": widget.get("/BC")
+                    }
+                    widgets.append(widget_data)
+                field_data["widgets"] = widgets
+            
+            form_tags[str(field_name)] = field_data
+        
+        logging.info(f'Filename: {pdf_path} | Extracted {len(form_tags)} form field tags')
+        
+    except Exception as e:
+        logging.error(f'Filename: {pdf_path} | Operation: Form tag extraction | Error: {e}')
+        # Return empty dict to allow processing to continue
+        return {}
+    
+    return form_tags
+
+
+def restore_form_tags(pdf_path: str, form_tags: Dict[str, Dict[str, Any]]) -> None:
+    """
+    Restore form field accessibility properties to a PDF after processing.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        form_tags: Dictionary of form field properties to restore
+    """
+    if not form_tags:
+        logging.info(f'Filename: {pdf_path} | No form tags to restore')
+        return
+    
+    try:
+        reader = PdfReader(pdf_path)
+        writer = PdfWriter()
+        
+        # Copy all pages
+        for page in reader.pages:
+            writer.add_page(page)
+        
+        # Check if the PDF has a form
+        if "/AcroForm" not in reader.trailer["/Root"]:
+            logging.warning(f'Filename: {pdf_path} | Operation: Form tag restoration | No AcroForm found in processed PDF, cannot restore tags')
+            return
+        
+        # Clone the AcroForm to the writer
+        writer._root_object["/AcroForm"] = reader.trailer["/Root"]["/AcroForm"]
+        
+        acro_form = writer._root_object["/AcroForm"]
+        
+        if "/Fields" not in acro_form:
+            logging.warning(f'Filename: {pdf_path} | Operation: Form tag restoration | No fields found in AcroForm, cannot restore tags')
+            return
+        
+        fields = acro_form["/Fields"]
+        restoration_count = 0
+        errors = []
+        
+        # Restore properties to each field
+        for field_ref in fields:
+            field = field_ref.get_object()
+            field_name = str(field.get("/T", ""))
+            
+            if field_name in form_tags:
+                try:
+                    saved_data = form_tags[field_name]
+                    
+                    # Restore accessibility properties
+                    if saved_data.get("tooltip"):
+                        field["/TU"] = saved_data["tooltip"]
+                    
+                    if saved_data.get("mapping_name"):
+                        field["/TM"] = saved_data["mapping_name"]
+                    
+                    if saved_data.get("alt_text"):
+                        field["/Alt"] = saved_data["alt_text"]
+                    
+                    restoration_count += 1
+                    
+                except Exception as e:
+                    error_msg = f"Failed to restore field {field_name}: {e}"
+                    errors.append(error_msg)
+                    logging.error(f'Filename: {pdf_path} | Operation: Form tag restoration | Error: {error_msg}')
+        
+        # Write the updated PDF
+        with open(pdf_path, "wb") as f:
+            writer.write(f)
+        
+        logging.info(f'Filename: {pdf_path} | Restored {restoration_count} form field tags')
+        
+        if errors:
+            logging.warning(f'Filename: {pdf_path} | Operation: Form tag restoration | Restoration errors: {errors}')
+        
+        # Validate restoration
+        validate_form_tag_restoration(pdf_path, form_tags, restoration_count)
+        
+    except Exception as e:
+        logging.error(f'Filename: {pdf_path} | Operation: Form tag restoration | Error: {e}')
+        # Don't re-raise - allow processing to continue even if restoration fails
+
+
+def validate_form_tag_restoration(pdf_path: str, original_tags: Dict[str, Dict[str, Any]], 
+                                   restoration_count: int) -> None:
+    """
+    Validate that all form tags were successfully restored.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        original_tags: Original form tags that were extracted
+        restoration_count: Number of tags that were restored
+    """
+    try:
+        if restoration_count != len(original_tags):
+            logging.warning(
+                f'Filename: {pdf_path} | Validation warning: '
+                f'Expected to restore {len(original_tags)} tags but restored {restoration_count}'
+            )
+        else:
+            logging.info(
+                f'Filename: {pdf_path} | Validation successful: '
+                f'All {restoration_count} form field tags were restored'
+            )
+    except Exception as e:
+        logging.error(f'Filename: {pdf_path} | Error during validation: {e}')
+
 
 def add_viewer_preferences(pdf_path, filename):
     reader = PdfReader(pdf_path)
@@ -622,7 +806,24 @@ def main():
 
         add_viewer_preferences(local_file_path, filename)
 
+        # Extract form tags before autotagging with error handling
+        form_tags = {}
+        try:
+            form_tags = extract_form_tags(filename)
+            logging.info(f'Filename: {filename} | Extracted {len(form_tags)} form field tags before autotagging')
+        except Exception as e:
+            logging.error(f'Filename: {filename} | Operation: Form tag extraction | Error: {e}')
+            logging.info(f'Filename: {filename} | Proceeding with autotag without form tag preservation (fail-safe)')
+
         autotag_pdf_with_options(filename, client_id, client_secret)
+
+        # Restore form tags after autotagging with error handling
+        try:
+            restore_form_tags(filename, form_tags)
+            logging.info(f'Filename: {filename} | Form tag preservation completed')
+        except Exception as e:
+            logging.error(f'Filename: {filename} | Operation: Form tag restoration | Error: {e}')
+            logging.info(f'Filename: {filename} | Continuing with autotagged PDF without form tag restoration (fail-safe)')
 
         extract_api(filename, client_id, client_secret)
 

@@ -26,6 +26,75 @@ The following architecture diagram illustrates the various AWS components utiliz
 
 ![Architecture Diagram](docs/images/architecture.png)
 
+## When to Use This Tool
+
+### PDF-to-PDF Remediation - Suitable For:
+
+- **Scanned documents** requiring OCR and accessibility tagging
+- **Simple PDFs** with text and images but no complex forms
+- **Documents without existing accessibility tags** that need comprehensive remediation
+- **PDFs requiring batch processing** for large-scale accessibility improvements
+- **Documents where PDF format must be preserved** (e.g., for archival or legal requirements)
+
+### PDF-to-PDF Remediation - Not Suitable For:
+
+- **PDFs with fully-tagged interactive forms** - existing form accessibility tags may be affected during processing
+- **Documents already meeting accessibility standards** - processing may introduce unnecessary changes
+- **PDFs requiring pixel-perfect layout preservation** - some layout adjustments may occur
+- **Documents with complex embedded multimedia** - advanced interactive elements may not be fully preserved
+
+### PDF-to-HTML Remediation - Suitable For:
+
+- **Documents intended for web display** where HTML format is acceptable
+- **Content requiring maximum accessibility** through semantic HTML structure
+- **PDFs with complex layouts** that benefit from HTML's responsive design capabilities
+- **Documents needing extensive alt text generation** for images
+
+### PDF-to-HTML Remediation - Not Suitable For:
+
+- **Documents requiring PDF format** for legal, archival, or distribution purposes
+- **PDFs with interactive forms** that must remain functional in PDF format
+- **Documents with precise layout requirements** that cannot be adapted to HTML
+
+## Known Limitations
+
+### File Size Considerations
+
+**PDF-to-PDF Processing:**
+- **Simple PDFs**: File size may increase up to 25% due to merge pipeline overhead (metadata, structure)
+- **Complex PDFs with forms**: Output files may be 20-50% larger than input due to accessibility enhancements
+- **Large PDFs (>100MB)**: Processing time increases; consider splitting into smaller documents
+- **Compression**: Automatic compression is applied during merge operations to minimize size impact
+- **Note**: Smaller PDFs experience proportionally larger overhead; larger documents benefit more from compression
+
+### Form Field Accessibility
+
+**PDF-to-PDF Processing:**
+- **Tagged forms**: Existing form field accessibility tags are preserved during processing
+- **Untagged forms**: Interactive form elements will receive accessibility tags
+- **Partially-tagged forms**: Existing tags are maintained while missing tags are added
+- **Form validation**: All preserved form field properties are verified after processing
+
+### Processing Limitations
+
+**Both Solutions:**
+- **Processing time**: Complex documents may take several minutes to process
+- **Concurrent processing**: PDF-to-PDF supports up to 100 concurrent chunks via Step Functions
+- **Manual review required**: Some accessibility issues (e.g., reading order, complex tables) may need human verification
+- **Language support**: Primary support for English; other languages may have varying results
+
+### Accessibility Standards
+
+**Important Notes:**
+- These tools significantly improve accessibility but **do not guarantee 100% WCAG 2.1 Level AA compliance**
+- **Manual review and testing** with assistive technologies is recommended for critical documents
+- **Complex tables, charts, and diagrams** may require manual accessibility improvements
+- **Color contrast issues** in images may need manual correction
+
+For detailed information about limitations and workarounds, see [LIMITATIONS.md](docs/LIMITATIONS.md).
+
+For guidance on processing multiple PDFs efficiently, see [BATCH_PROCESSING.md](docs/BATCH_PROCESSING.md).
+
 ## Automated One Click Deployment
 
 We provide a **unified deployment script** that allows you to deploy either or both the solutions with a single command. Choose your preferred solution during deployment:
