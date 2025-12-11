@@ -8,8 +8,15 @@ import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import org.apache.pdfbox.multipdf.PDFMergerUtility;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.common.PDStream;
+import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.cos.COSObject;
+import org.apache.pdfbox.cos.COSStream;
+import org.apache.pdfbox.cos.COSBase;
+import org.apache.pdfbox.cos.COSDictionary;
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -162,6 +169,9 @@ public class App implements RequestHandler<Map<String, Object>, String> {
             // Enable compression via object streams (PDF 1.5+)
             doc.setVersion(1.5f);
 
+            // Compress all streams in the document
+            compressAllStreams(doc, baseFileName);
+
             // Save to temporary file
             doc.save(tempCompressedPath);
 
@@ -224,6 +234,71 @@ public class App implements RequestHandler<Map<String, Object>, String> {
                             baseFileName, e.getMessage()));
                 }
             }
+        }
+    }
+
+    /**
+     * Compresses all streams in the PDF document using FlateDecode compression.
+     *
+     * @param doc          The PDF document to compress.
+     * @param baseFileName The base name of the file used for logging purposes.
+     */
+    private void compressAllStreams(PDDocument doc, String baseFileName) {
+        int compressedCount = 0;
+        int skippedCount = 0;
+
+        try {
+            // Iterate through all objects in the document
+            for (COSObject obj : doc.getDocument().getObjects()) {
+                COSBase base = obj.getObject();
+                if (base instanceof COSStream) {
+                    COSStream stream = (COSStream) base;
+
+                    // Check if stream is already compressed
+                    COSBase filter = stream.getDictionaryObject(COSName.FILTER);
+                    if (filter != null) {
+                        skippedCount++;
+                        continue; // Already has a filter, skip
+                    }
+
+                    // Get the uncompressed stream data
+                    byte[] data;
+                    try (java.io.InputStream is = stream.createRawInputStream()) {
+                        data = is.readAllBytes();
+                    } catch (IOException e) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Skip empty or very small streams
+                    if (data == null || data.length < 100) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Apply FlateDecode compression
+                    try {
+                        stream.setItem(COSName.FILTER, COSName.FLATE_DECODE);
+                        try (OutputStream os = stream.createOutputStream(COSName.FLATE_DECODE)) {
+                            os.write(data);
+                        }
+                        compressedCount++;
+                    } catch (IOException e) {
+                        // If compression fails, remove the filter and continue
+                        stream.removeItem(COSName.FILTER);
+                        skippedCount++;
+                    }
+                }
+            }
+
+            System.out.println(String.format(
+                    "Filename: %s | Operation: Stream compression | Compressed: %d streams, Skipped: %d streams",
+                    baseFileName, compressedCount, skippedCount));
+
+        } catch (Exception e) {
+            System.out.println(String.format(
+                    "Filename: %s | Operation: Stream compression | Warning: %s",
+                    baseFileName, e.getMessage()));
         }
     }
 
